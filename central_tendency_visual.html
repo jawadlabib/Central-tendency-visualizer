@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Central Tendency Visualizer</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#60a5fa;--muted:#94a3b8;--glass:rgba(255,255,255,0.03)}
+    *{box-sizing:border-box;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,#071023 0%,#081126 100%);color:#e6eef8;margin:0;padding:24px;}
+    .wrap{max-width:900px;margin:0 auto}
+    header{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+    h1{font-size:18px;margin:0}
+    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 24px rgba(2,6,23,0.6)}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+    input[type=text]{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:var(--glass);color:var(--muted);min-width:220px}
+    select,button{padding:8px;border-radius:8px;border:0;background:var(--accent);color:#072031;font-weight:600}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .vis{margin-top:12px}
+    svg{width:100%;height:200px;display:block}
+    .legend{display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap}
+    .chip{padding:6px 8px;border-radius:999px;background:rgba(255,255,255,0.03);font-size:13px}
+    .explain{margin-top:12px;color:var(--muted);font-size:14px}
+    .point-count{font-size:12px;fill:#e6eef8}
+    .center-label{font-weight:700}
+    footer{margin-top:14px;color:var(--muted);font-size:13px}
+    @media (max-width:520px){header{flex-direction:column;align-items:flex-start}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Central Tendency Visualizer — mean / median / mode</h1>
+      <div style="margin-left:auto;color:var(--muted);font-size:13px">Interactive demo • single-file</div>
+    </header>
+
+    <div class="card">
+      <div class="controls">
+        <input id="dataInput" type="text" value="4,4,4,8,10" title="Comma-separated numbers" />
+        <select id="method">
+          <option value="mean">Mean (average)</option>
+          <option value="median">Median (middle)</option>
+          <option value="mode">Mode (most frequent)</option>
+        </select>
+        <button id="draw">Draw</button>
+        <button id="random" class="secondary">Random sample</button>
+        <button id="reset" class="secondary">Reset</button>
+      </div>
+
+      <div class="vis card" style="background:transparent;padding:12px;border-radius:10px">
+        <svg id="svg" viewBox="0 0 1000 200" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend">
+          <div class="chip">Points: <span id="count">5</span></div>
+          <div class="chip">Selected: <span id="selectedMethod">Mean</span></div>
+          <div class="chip">Value: <span id="selectedValue">6</span></div>
+        </div>
+        <div class="explain" id="explain"></div>
+      </div>
+
+      <footer>
+        Tip: change the method or edit values (comma-separated). The line below describes how strongly each data point "holds" the selected value.
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    // Helper math
+    function parseData(str){
+      return str.split(',').map(s=>s.trim()).filter(s=>s!="").map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+    }
+
+    function mean(a){return a.reduce((s,x)=>s+x,0)/a.length}
+    function median(a){const n=[...a].sort((x,y)=>x-y);const m=n.length; if(m%2===1)return n[(m-1)/2];return (n[m/2-1]+n[m/2])/2}
+    function mode(a){const freq={};let best=null, bestc=0;for(const x of a){freq[x]=(freq[x]||0)+1;if(freq[x]>bestc){bestc=freq[x];best=[Number(x)]}else if(freq[x]===bestc){if(!best.includes(Number(x)))best.push(Number(x))}}return best.length===1?best[0]:best}
+
+    const svg = document.getElementById('svg');
+    const dataInput = document.getElementById('dataInput');
+    const methodSelect = document.getElementById('method');
+    const drawBtn = document.getElementById('draw');
+    const randomBtn = document.getElementById('random');
+    const resetBtn = document.getElementById('reset');
+    const explain = document.getElementById('explain');
+    const countEl = document.getElementById('count');
+    const selMethodEl = document.getElementById('selectedMethod');
+    const selValueEl = document.getElementById('selectedValue');
+
+    function computeMeasure(arr, method){
+      if(arr.length===0) return null;
+      if(method==='mean') return mean(arr);
+      if(method==='median') return median(arr);
+      if(method==='mode') return mode(arr);
+      return null;
+    }
+
+    function draw(){
+      const raw = parseData(dataInput.value);
+      if(raw.length===0){alert('Enter at least one number');return}
+      const method = methodSelect.value;
+      const measure = computeMeasure(raw, method);
+
+      countEl.textContent = raw.length;
+      selMethodEl.textContent = method.charAt(0).toUpperCase()+method.slice(1);
+      selValueEl.textContent = Array.isArray(measure)?measure.join(', '):(+measure).toFixed(3);
+
+      // Determine range
+      const min = Math.min(...raw, measure);
+      const max = Math.max(...raw, measure);
+      const pad = (max-min)*0.2 || 1;
+      const domainMin = min - pad; const domainMax = max + pad;
+
+      function xPos(val){
+        const left = 60; const right = 940; // svg coords
+        return left + ( (val - domainMin) / (domainMax - domainMin) )*(right-left);
+      }
+
+      // Clear svg
+      svg.innerHTML = '';
+
+      // Draw baseline
+      const baseline = document.createElementNS('http://www.w3.org/2000/svg','line');
+      baseline.setAttribute('x1',50);baseline.setAttribute('y1',140);baseline.setAttribute('x2',950);baseline.setAttribute('y2',140);
+      baseline.setAttribute('stroke','#1f2937');baseline.setAttribute('stroke-width',4);svg.appendChild(baseline);
+
+      // Axis ticks and labels
+      const steps = 8;
+      for(let i=0;i<=steps;i++){
+        const t = domainMin + (domainMax-domainMin)*(i/steps);
+        const x = xPos(t);
+        const tick = document.createElementNS('http://www.w3.org/2000/svg','line');
+        tick.setAttribute('x1',x);tick.setAttribute('y1',140);tick.setAttribute('x2',x);tick.setAttribute('y2',150);
+        tick.setAttribute('stroke','#0ea5a6');tick.setAttribute('stroke-width',1);svg.appendChild(tick);
+        const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+        label.setAttribute('x',x);label.setAttribute('y',165);label.setAttribute('text-anchor','middle');label.setAttribute('font-size',12);label.setAttribute('fill','#94a3b8');
+        label.textContent = Number(t.toFixed(2));svg.appendChild(label);
+      }
+
+      // Plot each distinct value (with counts)
+      const groups = {};
+      for(const v of raw) groups[v]=(groups[v]||0)+1;
+      const distinct = Object.keys(groups).map(k=>Number(k)).sort((a,b)=>a-b);
+
+      // Draw connections from each point to measure (if measure is single number)
+      const measureVals = Array.isArray(measure)?measure: [Number(measure)];
+
+      // For textual explanation we need distances to nearest measure value
+      const contributions = [];
+      for(const v of distinct){
+        // distance to closest measure
+        const dists = measureVals.map(mv=>Math.abs(v-mv));
+        const dist = Math.min(...dists);
+        contributions.push({value:v,count:groups[v],dist});
+      }
+      // sort by distance ascending
+      contributions.sort((a,b)=>a.dist-b.dist || b.count-a.count);
+
+      // build explanation sentence using heuristics
+      function strengthLabel(dist){
+        if(dist<=0.5) return 'very strong';
+        if(dist<=1.5) return 'strong';
+        if(dist<=3) return 'moderate';
+        if(dist<=6) return 'slight';
+        return 'weak';
+      }
+
+      // draw connecting strokes per original data points (maintain duplicates)
+      for(const v of distinct){
+        const x = xPos(v);
+        const y = 120 - Math.min(groups[v],4)*8; // stack a bit by count
+        // draw point(s)
+        const count = groups[v];
+        for(let i=0;i<count;i++){
+          const cx = x + (i- (count-1)/2)*10;
+          const cy = 120 - i*6;
+          const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+          c.setAttribute('cx',cx);c.setAttribute('cy',cy);c.setAttribute('r',8);
+          c.setAttribute('fill','#0ea5a6');c.setAttribute('opacity',1);svg.appendChild(c);
+        }
+        // small label for count
+        const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t.setAttribute('x',x);t.setAttribute('y',100);t.setAttribute('text-anchor','middle');t.setAttribute('font-size',12);t.setAttribute('class','point-count');
+        t.textContent = (groups[v]>1? groups[v]+'× ':'')+v;svg.appendChild(t);
+      }
+
+      // draw measure markers
+      for(const mv of measureVals){
+        const mx = xPos(mv);
+        const mark = document.createElementNS('http://www.w3.org/2000/svg','line');
+        mark.setAttribute('x1',mx);mark.setAttribute('y1',80);mark.setAttribute('x2',mx);mark.setAttribute('y2',150);
+        mark.setAttribute('stroke','#fca5a5');mark.setAttribute('stroke-width',3);svg.appendChild(mark);
+        const mlabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+        mlabel.setAttribute('x',mx);mlabel.setAttribute('y',70);mlabel.setAttribute('text-anchor','middle');mlabel.setAttribute('font-size',13);mlabel.setAttribute('fill','#fca5a5');mlabel.setAttribute('class','center-label');
+        mlabel.textContent = method + ': ' + Number(mv).toFixed(3);svg.appendChild(mlabel);
+      }
+
+      // connections from each distinct point to nearest measure value
+      for(const c of contributions){
+        const v = c.value; const x = xPos(v);
+        // find nearest measure value for this v
+        let nearest = measureVals[0]; let nd = Math.abs(v-measureVals[0]);
+        for(const mv of measureVals){const d=Math.abs(v-mv); if(d<nd){nd=d;nearest=mv}}
+        const nx = xPos(nearest);
+        const dist = Math.abs(v-nearest);
+        const strength = 1/(1+dist); // 1.. small
+        const sw = Math.max(0.6, Math.min(6, 6*strength));
+        const opacity = Math.max(0.12, Math.min(0.9, 0.9*strength));
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg','line');
+        path.setAttribute('x1',x);path.setAttribute('y1',120);path.setAttribute('x2',nx);path.setAttribute('y2',95);
+        path.setAttribute('stroke','#93c5fd');path.setAttribute('stroke-width',sw);path.setAttribute('stroke-linecap','round');path.setAttribute('opacity',opacity);
+        svg.appendChild(path);
+
+        // small label on the path
+        const midx = (x+nx)/2; const midy = (120+95)/2;
+        const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+        label.setAttribute('x',midx);label.setAttribute('y',midy-6);label.setAttribute('text-anchor','middle');label.setAttribute('font-size',12);label.setAttribute('fill','#c7f9ff');
+        label.textContent = strengthLabel(dist) + (c.count>1? (' • '+c.count+'×'):'');svg.appendChild(label);
+      }
+
+      // explanation sentence: e.g. "6 is held by 4,4,4 (strong), 8 (slight), 10 (weak)"
+      // We'll build phrases by repeating values per count
+      const measureForText = Array.isArray(measure)?measure.join(', '):Number(measure);
+      const exampleTarget = (method==='mode' && Array.isArray(measure))? ('modes '+measure.join(', ')) : ('the ' + method + ' ' + measureForText);
+
+      // break contributions into phrases with labels and expand duplicates
+      const phraseParts = contributions.map(c=>{
+        // expand value repeated by count
+        const values = Array(c.count).fill(c.value).join(',');
+        return `${values} (${strengthLabel(c.dist)})`;
+      });
+      explain.innerHTML = `<strong>${method.toUpperCase()} = ${Array.isArray(measure)? measure.join(', '): Number(measure)}</strong>.\n\n` +
+        `Contribution summary: ` + phraseParts.join(' → ');
+
+    }
+
+    drawBtn.addEventListener('click',draw);
+    dataInput.addEventListener('keydown',e=>{if(e.key==='Enter')draw()});
+    randomBtn.addEventListener('click',()=>{
+      const n = Math.floor(Math.random()*6)+3;
+      const arr = Array.from({length:n},()=>Math.round((Math.random()*16-2)));dataInput.value = arr.join(',');draw();
+    });
+    resetBtn.addEventListener('click',()=>{dataInput.value='4,4,4,8,10';methodSelect.value='mean';draw();});
+
+    // initial draw
+    draw();
+  </script>
+</body>
+</html>
